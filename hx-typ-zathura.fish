@@ -24,6 +24,9 @@ if test (count $argv) -eq 0; or set -q _flag_h
     echo "-k/--kill-on-exit: Kill Zathura when parent Helix process exits."
     echo "-w/--watch: live preview mode"
     echo "-h/--help: print this screen"\n
+    echo "Note:"
+    echo "To avoid spawning a large number of typst processes,"
+    echo "--watch is only effective if --kill-on-exit is also set."\n
     echo 'Author: Daniel Fichtinger <daniel@ficd.ca>'
     echo 'License: MIT'
     return 0
@@ -111,7 +114,7 @@ function zopen --wraps zathura
             end
         end &
     else
-        # user didn't ask for watch, so open normally
+        # user didn't ask for kill, so open normally
         zathura "$pdf_path" &>/dev/null &
     end
     true
