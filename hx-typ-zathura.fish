@@ -3,13 +3,14 @@
 # hx-typ-zathura: easily preview your typst documents from Helix!
 # This script will automatically find a pdf that matches your
 # current Typst document and attempt to open it with Zathura.
-# Optionally, it will quit Zathura when you close Helix.
+# Optionally, it will quit Zathura when you close Helix, and
+# uses typst watch to continuously compile the file.
 # Run this script with --help for usage info!
 
 # Author: Daniel Fichtinger <daniel@ficd.ca
 # License: MIT
 
-argparse q/quiet k/kill-on-exit h/help -- $argv
+argparse q/quiet k/kill-on-exit w/watch h/help -- $argv
 
 if test (count $argv) -eq 0; or set -q _flag_h
     echo "Helper script for opening Typst files from Helix in Zathura."\n
@@ -21,6 +22,7 @@ if test (count $argv) -eq 0; or set -q _flag_h
     echo "Options:"
     echo "-q/--quiet: Don't \`echo\` on caught errors, return 1 instead."
     echo "-k/--kill-on-exit: Kill Zathura when parent Helix process exits."
+    echo "-w/--watch: live preview mode"
     echo "-h/--help: print this screen"\n
     echo 'Author: Daniel Fichtinger <daniel@ficd.ca>'
     echo 'License: MIT'
@@ -43,9 +45,18 @@ function qecho
     end
 end
 
+# absolute path of %{buffer_name} file
+set -g src_path (path resolve $argv[1])
+
 # check if the user asked to kill zathura on helix exit
-if set -q _flag_k
-    set kill_parent
+# or to watch the pdf
+if set -q _flag_k || set -q _flag_w
+    if set -q _flag_k
+        set kill_parent
+    end
+    if set -q _flag_w
+        set typst_watch
+    end
     # traverse up process tree to find caller Helix PID
     # We use this PID to kill zathura if Helix exits first!
     # we only need to define this function
@@ -81,19 +92,27 @@ end
 
 # opens zathura, optionally watching for helix closing
 function zopen --wraps zathura
-    # this should be set if the user asked to watch
+    set -f pdf_path $argv[1]
+    # this should be set if the user asked to kill
     if set -q kill_parent
         # create background sub-process
         # otherwise helix will hang
         begin
-            zathura "$argv[1]" &>/dev/null &
+            zathura "$pdf_path" &>/dev/null &
             set zathura_pid $last_pid
+            if set -q typst_watch
+                typst watch "$src_path" "$pdf_path" &>/dev/null &
+            end
+            set typst_pid $last_pid
             waitpid -c 1 "$parent_pid" "$zathura_pid"
             kill $zathura_pid &>/dev/null
+            if set -q typst_watch
+                kill $typst_pid &>/dev/null
+            end
         end &
     else
         # user didn't ask for watch, so open normally
-        zathura "$argv[1]" &>/dev/null &
+        zathura "$pdf_path" &>/dev/null &
     end
     true
 end
@@ -110,19 +129,17 @@ function find_pdf
     end
 end
 
-# absolute path of %{buffer_name} file
-set -l src (path resolve $argv[1])
-# echo $src
+# echo $src_path
 # return 0
 # exit if not a typst file
-if not string match -q '*.typ' $src
-    qecho "$(path basename $src) is not a Typst file!"
+if not string match -q '*.typ' $src_path
+    qecho "$(path basename $src_path) is not a Typst file!"
     return $ret
 end
 # change abs path to pdf extension
-set -l targ (string replace --regex '\.typ$' '.pdf' $src)
+set -l targ (string replace --regex '\.typ$' '.pdf' $src_path)
 # get pdf target's base name
-set -l base (path basename --no-extension $src).pdf
+set -l base (path basename --no-extension $src_path).pdf
 
 # if a suitable pdf exists in the same dir, open it
 if test -f "$targ"
